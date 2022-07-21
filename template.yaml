@@ -42,6 +42,17 @@ Parameters:
     Description: Cstom domain added to client # only configures cognito for now. Manually handle domain on amplify console for client
     Default: none
 
+  pCloudFrontDomainName:
+    Type: String
+    Description: Alias to apply to CloudFront
+  pACMCertificateArn:
+    Type: String
+    Description: ARN of the ACM Certificate for CloudFrontAlias
+  pCustomDomainHostedZoneId:
+    Description: HostedZoneID for the CustomDomain
+    Type: String
+
+
 ###################################################################################################
 ##   Template Conditions                                                                         ##
 ###################################################################################################
@@ -70,6 +81,10 @@ Resources:
           ThrottlingBurstLimit: 1000
         - HttpMethod: "GET"
           ResourcePath: "/{linkId}"
+          ThrottlingRateLimit: 10000
+          ThrottlingBurstLimit: 4000
+        - HttpMethod: "GET"
+          ResourcePath: "/"
           ThrottlingRateLimit: 10000
           ThrottlingBurstLimit: 4000
       DefinitionBody:
@@ -152,6 +167,8 @@ Resources:
     Type: AWS::CloudFront::Distribution
     Properties: 
       DistributionConfig:
+        Aliases:
+          - !Ref pCloudFrontDomainName
         Comment: URL Shortener CDN
         DefaultCacheBehavior:
           AllowedMethods: ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
@@ -178,11 +195,28 @@ Resources:
           Bucket: !GetAtt CloudFrontAccessLogsBucket.DomainName
         Enabled: true
         Origins:
-          - CustomOriginConfig:
+          - Id: "URLShortenerAPIGW"
+            CustomOriginConfig:
               OriginProtocolPolicy: https-only
             DomainName: !Sub ${SiteAPI}.execute-api.${AWS::Region}.amazonaws.com
-            Id: "URLShortenerAPIGW"
             OriginPath: /Prod
+        ViewerCertificate:
+          AcmCertificateArn: !Ref pACMCertificateArn
+          MinimumProtocolVersion: TLSv1.2_2021
+          SslSupportMethod: sni-only
+
+  PublicRecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref pCustomDomainHostedZoneId
+      Name: !Ref pCloudFrontDomainName
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistro.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2 # Static value
+      # ResourceRecords:
+      #   - !GetAtt CloudFrontDistro.DomainName
+      # TTL: 60
+      Type: A
 
   ##   CloudFront access logs storage
   CloudFrontAccessLogsBucket:
